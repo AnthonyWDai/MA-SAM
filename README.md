@@ -26,12 +26,12 @@ pip install -r requirements.txt
 ```
 
 ## Data Preparation
-- BTCV dataset: The raw data can be downloaded from the [challenge website](https://www.synapse.org/#!Synapse:syn3379050) after registration. We also provide our [preprocessing script](https://github.com/cchen-cc/MA-SAM/blob/main/preprocessing/util_script_btcv.py) and [preprocessed data](https://drive.google.com/file/d/1uk8cOQsX7VQBQxnwQRRtfLT-rhX4q7PD/view?usp=drive_link). 
-- Prostate dataset: The raw data can be downloaded from [this link](https://liuquande.github.io/SAML/). We also provide our [preprocessing script](https://github.com/cchen-cc/MA-SAM/blob/main/preprocessing/util_script_prostateMRI.py).
-- EndoVis'18 dataset: The raw data can be downloaded form the [challenge website](https://endovissub2018-roboticscenesegmentation.grand-challenge.org/Downloads/) after registration. We also provide our [preprocessing script](https://github.com/cchen-cc/MA-SAM/blob/main/preprocessing/util_script_endovis18.py).
+- BTCV dataset: The raw data can be downloaded from the [challenge website](https://www.synapse.org/#!Synapse:syn3379050) after registration. We also provide our [preprocessing script](MA-SAM/blob/main/preprocessing/util_script_btcv.py) and [preprocessed data](https://drive.google.com/file/d/1uk8cOQsX7VQBQxnwQRRtfLT-rhX4q7PD/view?usp=drive_link). 
+- Prostate dataset: The raw data can be downloaded from [this link](https://liuquande.github.io/SAML/). We also provide our [preprocessing script](MA-SAM/blob/main/preprocessing/util_script_prostateMRI.py).
+- EndoVis'18 dataset: The raw data can be downloaded form the [challenge website](https://endovissub2018-roboticscenesegmentation.grand-challenge.org/Downloads/) after registration. We also provide our [preprocessing script](MA-SAM/blob/main/preprocessing/util_script_endovis18.py).
 - MSD-Pancreas: The raw data can be downloaded from the [this link](https://drive.google.com/drive/folders/1HqEgzS8BV2c7xYNrZdEAnrHk7osJJ--2).
 
-In this [dataset_split file](https://github.com/cchen-cc/MA-SAM/blob/main/preprocessing/dataset_split.md), we provide the dataset splits that are used in our work. 
+In this [dataset_split file](MA-SAM/blob/main/preprocessing/dataset_split.md), we provide the dataset splits that are used in our work. 
   
 ## Training
 Before start, please download SAM pre-trained model weights: [SAM ViT_H](https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth), [SAM ViT_L](https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth), [SAM ViT_B](https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth), and save them under proper folders. Then go to the folder MA-SAM, and start the training:
