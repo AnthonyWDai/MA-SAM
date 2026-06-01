@@ -1,7 +1,3 @@
-from segment_anything import build_sam
-from segment_anything import SamPredictor
-from segment_anything import sam_model_registry
-
 import math
 import torch
 import torch.nn as nn
