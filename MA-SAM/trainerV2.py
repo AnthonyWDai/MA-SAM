@@ -103,7 +103,6 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     db_train = PSMADataset(
         base_dir=args.root_path,
         split="train",
-        num_classes=args.num_classes,
         transform=transforms.Compose([
             RandomGenerator(
                 output_size=[args.img_size, args.img_size],
@@ -115,7 +114,6 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     db_val = PSMADataset(
         base_dir=args.root_path,
         split="val",
-        num_classes=args.num_classes,
         transform=transforms.Compose([
             RandomGenerator(
                 output_size=[args.img_size, args.img_size],
@@ -176,7 +174,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
             weight_decay=0.0001
         )
 
-    scaler = torch.cuda.amp.GradScaler(enabled=args.use_amp) if args.use_amp else None
+    scaler = torch.amp.GradScaler("cuda", enabled=args.use_amp) if args.use_amp else None
 
     writer = SummaryWriter(snapshot_path + '/log')
     iter_num = 0

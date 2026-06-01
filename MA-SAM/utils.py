@@ -23,7 +23,7 @@ class DiceLoss(nn.Module):
     def _one_hot_encoder(self, input_tensor):
         tensor_list = []
         for i in range(self.n_classes):
-            temp_prob = 1.0*(input_tensor == i)  # * torch.ones_like(input_tensor)
+            temp_prob = 1.0 * (input_tensor == i)  # * torch.ones_like(input_tensor)
             temp_prob[input_tensor == -100] = -100
             tensor_list.append(temp_prob.unsqueeze(1))
         output_tensor = torch.cat(tensor_list, dim=1)
