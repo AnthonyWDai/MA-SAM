@@ -42,7 +42,7 @@ def parse_args():
 
     # Model
     parser.add_argument("--vit_name", type=str, default="vit_h", help="SAM ViT backbone")
-    parser.add_argument("--num_classes", type=int, default=12, help="Number of output classes")
+    parser.add_argument("--num_classes", type=int, default=12, help="Number of output classes. Exclude background. num_multimask_outputs")
     parser.add_argument("--img_size", type=int, default=512, help="Input image size")
     parser.add_argument("--module", type=str, default="sam_fact_tt_image_encoder", help="Adapter module to import")
     parser.add_argument("--rank", type=int, default=32, help="Rank for FacT")

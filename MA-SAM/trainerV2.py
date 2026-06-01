@@ -22,6 +22,9 @@ from datetime import datetime
 
 def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight: float = 0.8):
     low_res_logits = outputs['low_res_logits']
+    # print("low_res_logits.shape:", low_res_logits.shape)
+    # print("low_res_labels.shape:", low_res_label_batch.shape)
+
     loss_ce = ce_loss(low_res_logits, low_res_label_batch.long())
     loss_dice = dice_loss(low_res_logits, low_res_label_batch, softmax=True)
     loss = (1 - dice_weight) * loss_ce + dice_weight * loss_dice
