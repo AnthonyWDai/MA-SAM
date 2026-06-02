@@ -87,7 +87,7 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
 
 
 def trainer_run(args, model, snapshot_path, multimask_output, low_res):
-    from datasets.dataset_psma import PSMADataset, RandomGenerator
+    from datasets.dataset_psmav2 import SimpleTransform, PSMADataset
 
     os.makedirs(snapshot_path, exist_ok=True)
     logging.basicConfig(
@@ -103,26 +103,25 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     num_classes = args.num_classes
     batch_size = args.batch_size * args.n_gpu
 
+
     db_train = PSMADataset(
         base_dir=args.root_path,
         split="train",
-        transform=transforms.Compose([
-            RandomGenerator(
-                output_size=[args.img_size, args.img_size],
-                low_res=[low_res, low_res]
-            )
-        ])
+        transform=SimpleTransform(
+            output_size=(args.img_size, args.img_size), 
+            low_res=(low_res, low_res), 
+            augment=True
+        ),
     )
 
     db_val = PSMADataset(
         base_dir=args.root_path,
         split="val",
-        transform=transforms.Compose([
-            RandomGenerator(
-                output_size=[args.img_size, args.img_size],
-                low_res=[low_res, low_res]
-            )
-        ])
+        transform=SimpleTransform(
+            output_size=(args.img_size, args.img_size), 
+            low_res=(low_res, low_res), 
+            augment=True
+        ),
     )
 
     print("The length of train set is: {}".format(len(db_train)))
