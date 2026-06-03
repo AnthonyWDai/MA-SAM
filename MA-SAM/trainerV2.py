@@ -26,6 +26,52 @@ def recommended_num_workers(reserve=1, train=True):
         return max(1, min(usable, 4))
     else:
         return max(1, min(usable // 2, 2))
+    
+
+import torch
+import torch.nn.functional as F
+
+def pad_collate(batch):
+    result = {}
+
+    # strings / metadata
+    result["case_name"] = [item["case_name"] for item in batch if "case_name" in item]
+
+    # ---------- image ----------
+    max_d = max(item["image"].shape[0] for item in batch)
+    image_list = []
+    for item in batch:
+        x = item["image"]  # (D,H,W)
+        d, h, w = x.shape
+        if d < max_d:
+            x = F.pad(x, (0, 0, 0, 0, 0, max_d - d))  # pad depth
+        image_list.append(x)
+    result["image"] = torch.stack(image_list, dim=0)
+
+    # ---------- label ----------
+    if all("label" in item for item in batch):
+        label_list = []
+        for item in batch:
+            y = item["label"]
+            d, h, w = y.shape
+            if d < max_d:
+                y = F.pad(y, (0, 0, 0, 0, 0, max_d - d))
+            label_list.append(y)
+        result["label"] = torch.stack(label_list, dim=0)
+
+    # ---------- low_res_label ----------
+    if all("low_res_label" in item for item in batch):
+        max_d_low = max(item["low_res_label"].shape[0] for item in batch)
+        low_res_list = []
+        for item in batch:
+            y = item["low_res_label"]
+            d, h, w = y.shape
+            if d < max_d_low:
+                y = F.pad(y, (0, 0, 0, 0, 0, max_d_low - d))
+            low_res_list.append(y)
+        result["low_res_label"] = torch.stack(low_res_list, dim=0)
+
+    return result
 
 
 def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight: float = 0.8):
@@ -147,7 +193,8 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
         shuffle=True,
         num_workers=train_workers,
         pin_memory=True,
-        worker_init_fn=worker_init_fn
+        worker_init_fn=worker_init_fn,
+        collate_fn=pad_collate
     )
 
     valloader = DataLoader(
@@ -156,7 +203,8 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
         shuffle=False,
         num_workers=val_workers,
         pin_memory=True,
-        worker_init_fn=worker_init_fn
+        worker_init_fn=worker_init_fn,
+        collate_fn=pad_collate
     )
 
     if args.n_gpu > 1:
