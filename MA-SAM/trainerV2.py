@@ -1,23 +1,31 @@
-import argparse
 import logging
 import os
 import random
 import sys
-import time
-import math
-import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from tensorboardX import SummaryWriter
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
+
 from tqdm import tqdm
 from utils import DiceLoss
-from torchvision import transforms
-from icecream import ic
-from datetime import datetime
+
+
+def recommended_num_workers(reserve=1, train=True):
+    if hasattr(os, "sched_getaffinity"):
+        n_cpu = len(os.sched_getaffinity(0))
+    else:
+        n_cpu = os.cpu_count() or 1
+
+    usable = max(1, n_cpu - reserve)
+
+    if train:
+        return max(1, min(usable, 4))
+    else:
+        return max(1, min(usable // 2, 2))
 
 
 def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight: float = 0.8):
@@ -130,11 +138,14 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
+    train_workers = recommended_num_workers(train=True)
+    val_workers = recommended_num_workers(train=False)
+
     trainloader = DataLoader(
         db_train,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=8,
+        num_workers=train_workers,
         pin_memory=True,
         worker_init_fn=worker_init_fn
     )
@@ -143,7 +154,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
         db_val,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=4,
+        num_workers=val_workers,
         pin_memory=True,
         worker_init_fn=worker_init_fn
     )
