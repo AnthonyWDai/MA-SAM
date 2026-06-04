@@ -6,12 +6,15 @@ import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader
 
 from tqdm import tqdm
 from utils import DiceLoss
+
+from datasets.dataset_psmaV1_2 import TrainTransform, ValTransform, PSMADataset
 
 
 def recommended_num_workers(reserve=1, train=True):
@@ -26,10 +29,7 @@ def recommended_num_workers(reserve=1, train=True):
         return max(1, min(usable, 4))
     else:
         return max(1, min(usable // 2, 2))
-    
 
-import torch
-import torch.nn.functional as F
 
 def pad_collate(batch):
     result = {}
@@ -141,8 +141,6 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
 
 
 def trainer_run(args, model, snapshot_path, multimask_output, low_res):
-    from datasets.dataset_psmav2 import SimpleTransform, PSMADataset
-
     os.makedirs(snapshot_path, exist_ok=True)
     logging.basicConfig(
         filename=os.path.join(snapshot_path, "log.txt"),
@@ -158,28 +156,28 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     batch_size = args.batch_size * args.n_gpu
 
 
-    db_train = PSMADataset(
+    train_transform = TrainTransform(
+        output_size=(args.img_size, args.img_size), 
+        low_res=(low_res, low_res)
+    )
+    val_transform = ValTransform(
+        output_size=(args.img_size, args.img_size), 
+        low_res=(low_res, low_res)
+    )
+
+    train_dataset = PSMADataset(
         base_dir=args.root_path,
         split="train",
-        transform=SimpleTransform(
-            output_size=(args.img_size, args.img_size), 
-            low_res=(low_res, low_res), 
-            augment=True
-        ),
+        transform=train_transform,
     )
-
-    db_val = PSMADataset(
+    val_dataset = PSMADataset(
         base_dir=args.root_path,
         split="val",
-        transform=SimpleTransform(
-            output_size=(args.img_size, args.img_size), 
-            low_res=(low_res, low_res), 
-            augment=True
-        ),
+        transform=val_transform,
     )
 
-    print("The length of train set is: {}".format(len(db_train)))
-    print("The length of val set is: {}".format(len(db_val)))
+    print("The length of train set is: {}".format(len(train_dataset)))
+    print("The length of val set is: {}".format(len(val_dataset)))
 
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
@@ -188,7 +186,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     val_workers = recommended_num_workers(train=False)
 
     trainloader = DataLoader(
-        db_train,
+        train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=train_workers,
@@ -198,7 +196,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     )
 
     valloader = DataLoader(
-        db_val,
+        val_dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=val_workers,
