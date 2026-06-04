@@ -148,7 +148,8 @@ class MaskDecoder(nn.Module):
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
             hyper_in_list.append(self.output_hypernetworks_mlps[i](mask_tokens_out[:, i, :]))
-        hyper_in = torch.stack(hyper_in_list, dim=1)  # [b, c, token_num]
+        # hyper_in = torch.stack(hyper_in_list, dim=1)  # [b, token_num, h, w], token number here = num_classes + 1
+        hyper_in = torch.stack(hyper_in_list[::-1], dim=1)
 
         b, c, h, w = upscaled_embedding.shape  # [h, token_num, h, w]
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)  # [1, 4, 256, 256], 256 = 4 * 64, the size of image embeddings

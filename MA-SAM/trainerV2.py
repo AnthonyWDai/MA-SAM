@@ -33,10 +33,10 @@ def recommended_num_workers(reserve=1, train=True):
 
 def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight: float = 0.8):
     low_res_logits = outputs['low_res_logits']
-    print("low_res_logits.shape:", low_res_logits.shape)
-    print("low_res_label_batch.shape:", low_res_label_batch.shape)
-    print("low_res_label_batch.dtype:", low_res_label_batch.dtype)
-    print("low_res_label_batch.unique:", torch.unique(low_res_label_batch))
+    # print("low_res_logits.shape:", low_res_logits.shape)
+    # print("low_res_label_batch.shape:", low_res_label_batch.shape)
+    # print("low_res_label_batch.dtype:", low_res_label_batch.dtype)
+    # print("low_res_label_batch.unique:", torch.unique(low_res_label_batch))
 
     loss_ce = ce_loss(low_res_logits, low_res_label_batch.long().squeeze(1))
     loss_dice = dice_loss(low_res_logits, low_res_label_batch, softmax=True)
@@ -61,6 +61,7 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
         hw_size = image_batch.shape[-1]
         label_batch = label_batch.contiguous().view(-1, hw_size, hw_size)
         low_res_label_batch = sampled_batch['low_res_label']
+        low_res_label_batch = low_res_label_batch.contiguous().view(-1, *low_res_label_batch.shape[-2:])
 
         image_batch = image_batch.cuda(non_blocking=True)
         label_batch = label_batch.cuda(non_blocking=True)
@@ -70,12 +71,12 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
             with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.use_amp):
                 outputs = model(image_batch, multimask_output, args.img_size)
                 loss, loss_ce, loss_dice = calc_loss(
-                    outputs, low_res_label_batch, ce_loss, dice_loss, args.dice_param
+                    outputs, label_batch, ce_loss, dice_loss, args.dice_param
                 )
         else:
             outputs = model(image_batch, multimask_output, args.img_size)
             loss, loss_ce, loss_dice = calc_loss(
-                outputs, low_res_label_batch, ce_loss, dice_loss, args.dice_param
+                outputs, label_batch, ce_loss, dice_loss, args.dice_param
             )
 
         val_loss += loss.item()
@@ -113,7 +114,6 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     base_lr = args.base_lr
     num_classes = args.num_classes
     batch_size = args.batch_size * args.n_gpu
-
 
     train_transform = TrainTransform(
         output_size=(args.img_size, args.img_size), 
@@ -223,7 +223,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
                 with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.use_amp):
                     outputs = model(image_batch, multimask_output, args.img_size)
                     loss, loss_ce, loss_dice = calc_loss(
-                        outputs, low_res_label_batch, ce_loss, dice_loss, args.dice_param
+                        outputs, label_batch, ce_loss, dice_loss, args.dice_param
                     )
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
@@ -231,7 +231,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
             else:
                 outputs = model(image_batch, multimask_output, args.img_size)
                 loss, loss_ce, loss_dice = calc_loss(
-                    outputs, low_res_label_batch, ce_loss, dice_loss, args.dice_param
+                    outputs, label_batch, ce_loss, dice_loss, args.dice_param
                 )
                 loss.backward()
                 optimizer.step()
