@@ -149,7 +149,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
         batch_size=batch_size,
         shuffle=True,
         num_workers=train_workers,
-        pin_memory=False,
+        pin_memory=True,
         worker_init_fn=worker_init_fn,
     )
 
@@ -158,7 +158,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
         batch_size=batch_size,
         shuffle=False,
         num_workers=val_workers,
-        pin_memory=False,
+        pin_memory=True,
         worker_init_fn=worker_init_fn,
     )
 
