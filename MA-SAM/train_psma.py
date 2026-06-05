@@ -8,7 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn
 
 from segment_anything import sam_model_registry
-from trainerV2 import trainer_run
+from trainer_psma import trainer_run
 
 
 def parse_args():

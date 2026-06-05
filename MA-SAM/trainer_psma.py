@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from utils import DiceLoss
 
-from datasets.dataset_psmaV1_2 import TrainTransform, ValTransform, PSMADataset
+from datasets.dataset_psma import TrainTransform, ValTransform, PSMADataset
 
 
 def recommended_num_workers(reserve=1, train=True):
