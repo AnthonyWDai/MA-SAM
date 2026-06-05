@@ -2,7 +2,6 @@ import logging
 import os
 import random
 import sys
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -10,10 +9,8 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader
-
 from tqdm import tqdm
 from utils import DiceLoss
-
 from datasets.dataset_psma import TrainTransform, ValTransform, PSMADataset
 
 
@@ -22,9 +19,7 @@ def recommended_num_workers(reserve=1, train=True):
         n_cpu = len(os.sched_getaffinity(0))
     else:
         n_cpu = os.cpu_count() or 1
-
     usable = max(1, n_cpu - reserve)
-
     if train:
         return max(1, min(usable, 4))
     else:
@@ -33,11 +28,6 @@ def recommended_num_workers(reserve=1, train=True):
 
 def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight: float = 0.8):
     low_res_logits = outputs['low_res_logits']
-    # print("low_res_logits.shape:", low_res_logits.shape)
-    # print("low_res_label_batch.shape:", low_res_label_batch.shape)
-    # print("low_res_label_batch.dtype:", low_res_label_batch.dtype)
-    # print("low_res_label_batch.unique:", torch.unique(low_res_label_batch))
-
     loss_ce = ce_loss(low_res_logits, low_res_label_batch.long().squeeze(1))
     loss_dice = dice_loss(low_res_logits, low_res_label_batch, softmax=True)
     loss = (1 - dice_weight) * loss_ce + dice_weight * loss_dice
@@ -47,7 +37,6 @@ def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight: flo
 @torch.no_grad()
 def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
     model.eval()
-
     val_loss = 0.0
     val_ce = 0.0
     val_dice = 0.0
@@ -57,8 +46,8 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
         image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
         image_batch = image_batch.unsqueeze(2)
         image_batch = torch.cat((image_batch, image_batch, image_batch), dim=2)
-
         hw_size = image_batch.shape[-1]
+
         label_batch = label_batch.contiguous().view(-1, hw_size, hw_size)
         low_res_label_batch = sampled_batch['low_res_label']
         low_res_label_batch = low_res_label_batch.contiguous().view(-1, *low_res_label_batch.shape[-2:])
@@ -100,6 +89,13 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
     }
 
 
+def save_model(model, path):
+    try:
+        model.save_parameters(path)
+    except AttributeError:
+        model.module.save_parameters(path)
+
+
 def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     os.makedirs(snapshot_path, exist_ok=True)
     logging.basicConfig(
@@ -115,12 +111,20 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     num_classes = args.num_classes
     batch_size = args.batch_size * args.n_gpu
 
+    # default validation interval if not provided
+    validation_interval = getattr(
+        args, "validation_interval", 
+        max(1, round(args.max_epochs * 0.1))
+    )
+    if validation_interval < 1:
+        raise ValueError(f"validation_interval must be >= 1, got {validation_interval}")
+
     train_transform = TrainTransform(
-        output_size=(args.img_size, args.img_size), 
+        output_size=(args.img_size, args.img_size),
         low_res=(low_res, low_res)
     )
     val_transform = ValTransform(
-        output_size=(args.img_size, args.img_size), 
+        output_size=(args.img_size, args.img_size),
         low_res=(low_res, low_res)
     )
 
@@ -152,7 +156,6 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
         pin_memory=True,
         worker_init_fn=worker_init_fn,
     )
-
     valloader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -191,8 +194,8 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
         )
 
     scaler = torch.amp.GradScaler("cuda", enabled=args.use_amp) if args.use_amp else None
-
     writer = SummaryWriter(snapshot_path + '/log')
+
     iter_num = 0
     max_epoch = args.max_epochs
     stop_epoch = args.stop_epoch
@@ -200,6 +203,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     best_val_loss = float("inf")
 
     logging.info("{} iterations per epoch. {} max iterations ".format(len(trainloader), max_iterations))
+    logging.info("Validation interval: every %d epoch(s)", validation_interval)
 
     iterator = tqdm(range(max_epoch), ncols=70)
 
@@ -261,42 +265,37 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
                 % (iter_num, loss.item(), loss_ce.item(), loss_dice.item())
             )
 
-        # validation every epoch
-        val_metrics = validate(args, model, valloader, ce_loss, dice_loss, multimask_output)
-        writer.add_scalar('val/total_loss', val_metrics["loss"], epoch_num + 1)
-        writer.add_scalar('val/loss_ce', val_metrics["loss_ce"], epoch_num + 1)
-        writer.add_scalar('val/loss_dice', val_metrics["loss_dice"], epoch_num + 1)
+        current_epoch = epoch_num + 1
+        is_final_epoch = (epoch_num >= max_epoch - 1) or (epoch_num >= stop_epoch - 1)
+        should_validate = (current_epoch % validation_interval == 0) or is_final_epoch
 
-        logging.info(
-            'epoch %d validation : val_loss : %f, val_ce: %f, val_dice: %f'
-            % (epoch_num + 1, val_metrics["loss"], val_metrics["loss_ce"], val_metrics["loss_dice"])
-        )
+        if should_validate:
+            val_metrics = validate(args, model, valloader, ce_loss, dice_loss, multimask_output)
 
-        # save best checkpoint
-        if val_metrics["loss"] < best_val_loss:
-            best_val_loss = val_metrics["loss"]
-            best_model_path = os.path.join(snapshot_path, 'best_model.pth')
-            try:
-                model.save_parameters(best_model_path)
-            except:
-                model.module.save_parameters(best_model_path)
-            logging.info("save best model to {}".format(best_model_path))
+            writer.add_scalar('val/total_loss', val_metrics["loss"], current_epoch)
+            writer.add_scalar('val/loss_ce', val_metrics["loss_ce"], current_epoch)
+            writer.add_scalar('val/loss_dice', val_metrics["loss_dice"], current_epoch)
+
+            logging.info(
+                'epoch %d validation : val_loss : %f, val_ce: %f, val_dice: %f'
+                % (current_epoch, val_metrics["loss"], val_metrics["loss_ce"], val_metrics["loss_dice"])
+            )
+
+            if val_metrics["loss"] < best_val_loss:
+                best_val_loss = val_metrics["loss"]
+                best_model_path = os.path.join(snapshot_path, 'best_model.pth')
+                save_model(model, best_model_path)
+                logging.info("save best model to {}".format(best_model_path))
 
         save_interval = 20
-        if (epoch_num + 1) % save_interval == 0:
+        if current_epoch % save_interval == 0:
             save_mode_path = os.path.join(snapshot_path, 'epoch_' + str(epoch_num) + '.pth')
-            try:
-                model.save_parameters(save_mode_path)
-            except:
-                model.module.save_parameters(save_mode_path)
+            save_model(model, save_mode_path)
             logging.info("save model to {}".format(save_mode_path))
 
-        if epoch_num >= max_epoch - 1 or epoch_num >= stop_epoch - 1:
+        if is_final_epoch:
             save_mode_path = os.path.join(snapshot_path, 'epoch_' + str(epoch_num) + '.pth')
-            try:
-                model.save_parameters(save_mode_path)
-            except:
-                model.module.save_parameters(save_mode_path)
+            save_model(model, save_mode_path)
             logging.info("save model to {}".format(save_mode_path))
             iterator.close()
             break

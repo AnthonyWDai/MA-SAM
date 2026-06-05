@@ -57,6 +57,12 @@ def parse_args():
     parser.add_argument("--dice_param", type=float, default=0.8, help="Dice loss parameter")
     parser.add_argument("--lr_exp", type=float, default=7, help="Learning rate decay exponent")
     parser.add_argument("--AdamW", action="store_true", help="Use AdamW optimizer")
+    parser.add_argument(
+        '--validation_interval',
+        type=int,
+        default=None,
+        help='Run validation every N epochs'
+    )
 
     # Warmup
     parser.add_argument(
