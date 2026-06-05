@@ -112,10 +112,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     batch_size = args.batch_size * args.n_gpu
 
     # default validation interval if not provided
-    validation_interval = getattr(
-        args, "validation_interval", 
-        max(1, round(args.max_epochs * 0.1))
-    )
+    validation_interval = args.validation_interval or max(1, round(args.max_epochs * 0.1))
     if validation_interval < 1:
         raise ValueError(f"validation_interval must be >= 1, got {validation_interval}")
 
