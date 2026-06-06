@@ -27,11 +27,42 @@ def recommended_num_workers(reserve=1, train=True):
 
 
 def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight: float = 0.8):
-    low_res_logits = outputs['low_res_logits']
+    low_res_logits = outputs['masks']
     loss_ce = ce_loss(low_res_logits, low_res_label_batch.long().squeeze(1))
     loss_dice = dice_loss(low_res_logits, low_res_label_batch, softmax=True)
     loss = (1 - dice_weight) * loss_ce + dice_weight * loss_dice
     return loss, loss_ce, loss_dice
+
+
+def compute_seg_dice(pred, target, num_classes, eps=1e-5):
+    """
+    pred: [B, H, W] predicted class ids
+    target: [B, H, W] ground truth class ids
+
+    Returns mean Dice across foreground classes [1..num_classes].
+    If a class is absent in both pred and target for a sample, Dice for that
+    sample is defined as 1.0.
+    """
+    assert pred.shape == target.shape, "pred and target must have the same shape"
+
+    dices = []
+    reduce_dims = tuple(range(1, pred.ndim))
+
+    for cls in range(1, num_classes + 1):
+        pred_c = (pred == cls).float()
+        target_c = (target == cls).float()
+
+        intersect = (pred_c * target_c).sum(dim=reduce_dims)
+        denom = pred_c.sum(dim=reduce_dims) + target_c.sum(dim=reduce_dims)
+
+        dice = torch.where(
+            denom > 0,
+            (2.0 * intersect + eps) / (denom + eps),
+            torch.ones_like(denom)
+        )
+        dices.append(dice.mean())
+
+    return torch.stack(dices).mean().item()
 
 
 @torch.no_grad()
@@ -39,16 +70,18 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
     model.eval()
     val_loss = 0.0
     val_ce = 0.0
-    val_dice = 0.0
+    val_dice_loss = 0.0
+    val_metric_dice = 0.0
     num_batches = 0
 
     for sampled_batch in tqdm(valloader, desc="Validation", ncols=70, leave=False):
         image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
         image_batch = image_batch.unsqueeze(2)
         image_batch = torch.cat((image_batch, image_batch, image_batch), dim=2)
-        hw_size = image_batch.shape[-1]
 
+        hw_size = image_batch.shape[-1]
         label_batch = label_batch.contiguous().view(-1, hw_size, hw_size)
+
         low_res_label_batch = sampled_batch['low_res_label']
         low_res_label_batch = low_res_label_batch.contiguous().view(-1, *low_res_label_batch.shape[-2:])
 
@@ -67,10 +100,22 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
             loss, loss_ce, loss_dice = calc_loss(
                 outputs, label_batch, ce_loss, dice_loss, args.dice_param
             )
+        
+
+        pred_masks = outputs["masks"]
+        pred_masks = torch.argmax(torch.softmax(pred_masks, dim=1), dim=1)
+
+        # TODO: ignore_index
+        batch_mean_dice = compute_seg_dice(
+            pred_masks,
+            label_batch,
+            args.num_classes,
+        )
 
         val_loss += loss.item()
         val_ce += loss_ce.item()
-        val_dice += loss_dice.item()
+        val_dice_loss += loss_dice.item()
+        val_metric_dice += batch_mean_dice
         num_batches += 1
 
     model.train()
@@ -80,12 +125,14 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
             "loss": float("inf"),
             "loss_ce": float("inf"),
             "loss_dice": float("inf"),
+            "metric_dice": 0.0,
         }
 
     return {
         "loss": val_loss / num_batches,
         "loss_ce": val_ce / num_batches,
-        "loss_dice": val_dice / num_batches,
+        "loss_dice": val_dice_loss / num_batches,
+        "metric_dice": val_metric_dice / num_batches,
     }
 
 
@@ -197,7 +244,8 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     max_epoch = args.max_epochs
     stop_epoch = args.stop_epoch
     max_iterations = args.max_epochs * len(trainloader)
-    best_val_loss = float("inf")
+    # best_val_loss = float("inf")
+    best_val_dice = -1.0
 
     logging.info("{} iterations per epoch. {} max iterations ".format(len(trainloader), max_iterations))
     logging.info("Validation interval: every %d epoch(s)", validation_interval)
@@ -272,14 +320,22 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
             writer.add_scalar('val/total_loss', val_metrics["loss"], current_epoch)
             writer.add_scalar('val/loss_ce', val_metrics["loss_ce"], current_epoch)
             writer.add_scalar('val/loss_dice', val_metrics["loss_dice"], current_epoch)
+            writer.add_scalar('val/metric_dice', val_metrics["metric_dice"], current_epoch)
 
             logging.info(
-                'epoch %d validation : val_loss : %f, val_ce: %f, val_dice: %f'
-                % (current_epoch, val_metrics["loss"], val_metrics["loss_ce"], val_metrics["loss_dice"])
+                'epoch %d validation : val_loss : %f, val_ce: %f, val_dice_loss: %f, val_metric_dice: %f'
+                % (
+                    current_epoch,
+                    val_metrics["loss"],
+                    val_metrics["loss_ce"],
+                    val_metrics["loss_dice"],
+                    val_metrics["metric_dice"],
+                )
             )
 
-            if val_metrics["loss"] < best_val_loss:
-                best_val_loss = val_metrics["loss"]
+            # if val_metrics["loss"] < best_val_loss:
+            if val_metrics["metric_dice"] > best_val_dice:
+                best_val_dice = val_metrics["metric_dice"]
                 best_model_path = os.path.join(snapshot_path, 'best_model.pth')
                 save_model(model, best_model_path)
                 logging.info("save best model to {}".format(best_model_path))
