@@ -199,16 +199,30 @@ def predict_case_5slice_blocks(model, volume_3ch, patch_size, multimask_output):
     return pred_seg
 
 
-def segmentation_to_onehot_logits(seg, num_classes):
+def segmentation_to_onehot_logits(seg, num_segmentation_heads):
     """
-    seg: [Z, Y, X]
-    returns:
-        [C, Z, Y, X]
+    Convert a hard segmentation map [Z, Y, X] into one-hot logits [C, Z, Y, X]
+    for nnU-Net export.
+
+    Parameters
+    ----------
+    seg : np.ndarray
+        Hard segmentation map with shape [Z, Y, X]
+    num_segmentation_heads : int
+        Number of channels expected by nnU-Net label manager
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor with shape [C, Z, Y, X]
     """
+    seg = seg.astype(np.int16)
     z, y, x = seg.shape
-    logits = np.zeros((num_classes, z, y, x), dtype=np.float32)
-    for c in range(num_classes):
+    logits = np.zeros((num_segmentation_heads, z, y, x), dtype=np.float32)
+
+    for c in range(num_segmentation_heads):
         logits[c] = (seg == c).astype(np.float32)
+
     return torch.from_numpy(logits)
 
 
@@ -253,7 +267,18 @@ def inference(args, multimask_output, model):
             multimask_output=multimask_output
         )   # [Z, Y, X]
 
-        predicted_logits = segmentation_to_onehot_logits(pred_seg, args.num_classes)
+        # build logits with the exact number of channels expected by nnU-Net
+        label_manager = plans_manager.get_label_manager(dataset_json)
+        num_segmentation_heads = label_manager.num_segmentation_heads
+
+        print(f"Case: {case_id}")
+        print(f"pred_seg shape: {pred_seg.shape}")
+        print(f"pred_seg unique labels: {np.unique(pred_seg)}")
+        print(f"nnU-Net expects num_segmentation_heads = {num_segmentation_heads}")
+
+        predicted_logits = segmentation_to_onehot_logits(pred_seg, num_segmentation_heads)
+
+        print(f"predicted_logits shape: {tuple(predicted_logits.shape)}")
 
         export_prediction_from_logits(
             predicted_logits,
