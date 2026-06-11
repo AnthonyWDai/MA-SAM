@@ -19,3 +19,4 @@ pycocotools==2.0.6
 onnx==1.14.0
 onnxruntime==1.14.1
 pandas==2.0.2
+nnunetv2
