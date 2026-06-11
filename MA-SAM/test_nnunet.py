@@ -1,5 +1,4 @@
 import os
-import json
 import argparse
 import random
 import numpy as np
@@ -31,9 +30,6 @@ def setup_nnunet_objects(dataset_json_file, plans_json_file, configuration_name)
 
 
 def map_channel_to_reference(src, ref, eps=1e-8):
-    """
-    Match intensity scale of src to ref using mean/std normalization.
-    """
     src = src.astype(np.float32)
     ref = ref.astype(np.float32)
 
@@ -54,8 +50,8 @@ def masam_channel_preprocess(data):
     """
     data: [C, Z, Y, X] after nnU-Net preprocessing
 
-    requested behavior:
-    1. modalities -> channels (already true)
+    requested preprocessing:
+    1. modalities become channels
     2. map other channels to first channel scale
     3. average all channels
     4. repeat to 3 channels
@@ -67,14 +63,12 @@ def masam_channel_preprocess(data):
 
     ref = data[0].astype(np.float32)
     aligned = [ref]
-
     for c in range(1, data.shape[0]):
         aligned.append(map_channel_to_reference(data[c], ref))
 
-    aligned = np.stack(aligned, axis=0)     # [C, Z, Y, X]
+    aligned = np.stack(aligned, axis=0)       # [C, Z, Y, X]
     avg = np.mean(aligned, axis=0, keepdims=True)  # [1, Z, Y, X]
-    avg3 = np.repeat(avg, 3, axis=0)        # [3, Z, Y, X]
-
+    avg3 = np.repeat(avg, 3, axis=0)          # [3, Z, Y, X]
     return avg3.astype(np.float32)
 
 
@@ -85,67 +79,122 @@ def normalize_minmax(x, eps=1e-8):
     return (x - mn) / (mx - mn + eps)
 
 
-def build_5slice_input(volume_3ch, z_idx):
+def resize_block(block, patch_size):
+    """
+    block: [D, 3, H, W]
+    returns:
+        [D, 3, patch_h, patch_w]
+    """
+    d, c, h, w = block.shape
+    ph, pw = patch_size
+    if (h, w) == (ph, pw):
+        return block
+    return zoom(block, (1, 1, ph / h, pw / w), order=3)
+
+
+def resize_prediction_block(pred_block, target_hw):
+    """
+    pred_block: [D, H, W]
+    target_hw: (Y, X)
+    """
+    d, h, w = pred_block.shape
+    Y, X = target_hw
+    if (h, w) == (Y, X):
+        return pred_block.astype(np.uint8)
+
+    out = np.zeros((d, Y, X), dtype=np.uint8)
+    for i in range(d):
+        out[i] = zoom(pred_block[i].astype(np.float32), (Y / h, X / w), order=0).astype(np.uint8)
+    return out
+
+
+def get_non_overlapping_5slice_starts(z):
+    """
+    Example:
+      z=20  -> [0, 5, 10, 15]
+      z=22  -> [0, 5, 10, 15, 17]
+      z=484 -> [0, 5, 10, ..., 475, 479]
+    """
+    if z <= 5:
+        return [0]
+
+    starts = list(range(0, z - 4, 5))
+    last_start = z - 5
+    if starts[-1] != last_start:
+        starts.append(last_start)
+    return starts
+
+
+def predict_case_5slice_blocks(model, volume_3ch, patch_size, multimask_output):
     """
     volume_3ch: [3, Z, Y, X]
-    return 5-slice pseudo-3D input around z_idx:
-        [3, 5, Y, X]
-    edge slices are replicated
-    """
-    _, Z, _, _ = volume_3ch.shape
 
-    idxs = [
-        max(0, min(Z - 1, z_idx - 2)),
-        max(0, min(Z - 1, z_idx - 1)),
-        max(0, min(Z - 1, z_idx)),
-        max(0, min(Z - 1, z_idx + 1)),
-        max(0, min(Z - 1, z_idx + 2)),
-    ]
+    block inference:
+    - split into non-overlapping 5-slice blocks
+    - final block may overlap only to cover the tail
+    - input to model: [B, D, 3, H, W], with B=1, D=5
+    - output from model: [BD, C, H, W]
 
-    window = volume_3ch[:, idxs, :, :]  # [3, 5, Y, X]
-    return window
-
-
-def predict_case_5slice(model, volume_3ch, patch_size, multimask_output):
-    """
-    volume_3ch: [3, Z, Y, X]
     returns:
         pred_seg: [Z, Y, X]
     """
     assert volume_3ch.ndim == 4 and volume_3ch.shape[0] == 3
     _, Z, Y, X = volume_3ch.shape
 
+    starts = get_non_overlapping_5slice_starts(Z)
     pred_seg = np.zeros((Z, Y, X), dtype=np.uint8)
+    written = np.zeros(Z, dtype=bool)
 
     model.eval()
     with torch.no_grad():
-        for z in tqdm(range(Z), desc="Predicting 5-slice windows"):
-            window = build_5slice_input(volume_3ch, z)  # [3, 5, Y, X]
-            window = normalize_minmax(window)
+        for start in tqdm(starts, desc="Predicting 5-slice blocks"):
+            end = start + 5
 
-            in_h, in_w = window.shape[-2], window.shape[-1]
-            if [in_h, in_w] != patch_size:
-                window_rs = zoom(
-                    window,
-                    (1, 1, patch_size[0] / in_h, patch_size[1] / in_w),
-                    order=3
-                )
-            else:
-                window_rs = window
+            block = volume_3ch[:, start:end, :, :]   # [3, 5, Y, X]
+            if block.shape[1] < 5:
+                # should only happen if Z < 5
+                pad_n = 5 - block.shape[1]
+                pad_block = np.repeat(block[:, -1:, :, :], pad_n, axis=1)
+                block = np.concatenate([block, pad_block], axis=1)
 
-            # [3, 5, H, W] -> [1, 5, 3, H, W]
-            inputs = torch.from_numpy(window_rs).float().permute(1, 0, 2, 3).unsqueeze(0).cuda()
+            block = np.transpose(block, (1, 0, 2, 3))   # [5, 3, Y, X]
+            block = normalize_minmax(block)
+            block = resize_block(block, patch_size)     # [5, 3, H, W]
+
+            # [5, 3, H, W] -> [1, 5, 3, H, W]
+            inputs = torch.from_numpy(block).float().unsqueeze(0).cuda()
 
             outputs = model(inputs, multimask_output, patch_size[0])
-            output_masks = outputs["masks"]  # [B, C, H, W]
+            output_masks = outputs["masks"]   # expected [BD, C, H, W]
 
-            pred = torch.argmax(torch.softmax(output_masks, dim=1), dim=1)[0].cpu().numpy()
+            if output_masks.ndim != 4:
+                raise RuntimeError(
+                    f"Expected output_masks shape [BD, C, H, W], got {tuple(output_masks.shape)}"
+                )
 
-            out_h, out_w = pred.shape
-            if (out_h, out_w) != (Y, X):
-                pred = zoom(pred.astype(np.float32), (Y / out_h, X / out_w), order=0)
+            bd, c, h, w = output_masks.shape
+            B = 1
+            D = 5
 
-            pred_seg[z] = pred.astype(np.uint8)
+            if bd != B * D:
+                raise RuntimeError(
+                    f"Expected first dim BD={B*D}, but got {bd}. output_masks shape={tuple(output_masks.shape)}"
+                )
+
+            output_masks = output_masks.view(B, D, c, h, w)   # [1, 5, C, H, W]
+            output_masks = torch.softmax(output_masks, dim=2)
+            pred = torch.argmax(output_masks, dim=2)          # [1, 5, H, W]
+            pred = pred[0].cpu().numpy()                      # [5, H, W]
+
+            pred = resize_prediction_block(pred, (Y, X))      # [5, Y, X]
+
+            for local_idx in range(5):
+                global_idx = start + local_idx
+                if global_idx >= Z:
+                    continue
+                if not written[global_idx]:
+                    pred_seg[global_idx] = pred[local_idx]
+                    written[global_idx] = True
 
     return pred_seg
 
@@ -153,7 +202,8 @@ def predict_case_5slice(model, volume_3ch, patch_size, multimask_output):
 def segmentation_to_onehot_logits(seg, num_classes):
     """
     seg: [Z, Y, X]
-    returns logits-like tensor [C, Z, Y, X] for nnU-Net export
+    returns:
+        [C, Z, Y, X]
     """
     z, y, x = seg.shape
     logits = np.zeros((num_classes, z, y, x), dtype=np.float32)
@@ -162,7 +212,7 @@ def segmentation_to_onehot_logits(seg, num_classes):
     return torch.from_numpy(logits)
 
 
-def inference(args, model, multimask_output):
+def inference(args, multimask_output, model):
     dataset_json, plans_manager, configuration_manager, preprocessor = setup_nnunet_objects(
         args.dataset_json,
         args.plans_json,
@@ -185,7 +235,6 @@ def inference(args, model, multimask_output):
         print(f"\nProcessing case: {case_id}")
         print(f"Input files: {case_files}")
 
-        # nnU-Net preprocessing from raw files
         data, seg, data_properties = preprocessor.run_case(
             case_files,
             None,
@@ -193,23 +242,19 @@ def inference(args, model, multimask_output):
             configuration_manager,
             dataset_json
         )
-        # data shape expected: [C, Z, Y, X]
+        # data: [C, Z, Y, X]
 
-        # custom MASAM preprocessing after nnU-Net preprocessing
-        volume_3ch = masam_channel_preprocess(data)  # [3, Z, Y, X]
+        volume_3ch = masam_channel_preprocess(data)   # [3, Z, Y, X]
 
-        # 5-slice pseudo-3D inference
-        pred_seg = predict_case_5slice(
+        pred_seg = predict_case_5slice_blocks(
             model=model,
             volume_3ch=volume_3ch,
             patch_size=[args.img_size, args.img_size],
             multimask_output=multimask_output
-        )  # [Z, Y, X]
+        )   # [Z, Y, X]
 
-        # convert to logits-like tensor for nnU-Net export
         predicted_logits = segmentation_to_onehot_logits(pred_seg, args.num_classes)
 
-        # save in original image space following nnU-Net export logic
         export_prediction_from_logits(
             predicted_logits,
             data_properties,
@@ -232,7 +277,7 @@ def main():
                         help='Pretrained SAM checkpoint')
 
     parser.add_argument('--input_dir', type=str, required=True,
-                        help='Input folder with nnU-Net style nii.gz files, e.g. case_0000.nii.gz, case_0001.nii.gz')
+                        help='Input folder with nnU-Net style nii.gz files')
     parser.add_argument('--output_dir', type=str, required=True,
                         help='Output folder for predicted nii.gz')
     parser.add_argument('--dataset_json', type=str, required=True,
@@ -243,8 +288,7 @@ def main():
                         help='nnU-Net configuration name, e.g. 3d_fullres')
 
     parser.add_argument('--num_classes', type=int, required=True)
-    parser.add_argument('--img_size', type=int, default=512,
-                        help='Input image size for MASAM')
+    parser.add_argument('--img_size', type=int, default=512)
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--deterministic', type=int, default=1)
     parser.add_argument('--vit_name', type=str, default='vit_h')
@@ -268,7 +312,6 @@ def main():
 
     maybe_mkdir_p(args.output_dir)
 
-    # build MASAM model
     sam, img_embedding_size = sam_model_registry[args.vit_name](
         image_size=args.img_size,
         num_classes=args.num_classes,
@@ -284,7 +327,7 @@ def main():
 
     multimask_output = args.num_classes > 1
 
-    inference(args, model, multimask_output)
+    inference(args, multimask_output, model)
 
 
 if __name__ == '__main__':
