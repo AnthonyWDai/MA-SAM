@@ -63,6 +63,8 @@ def parse_args():
         default=None,
         help='Run validation every N epochs'
     )
+    parser.add_argument("--ce_weight_clamp_max", type=float, default=5.0)
+    parser.add_argument("--ce_background_scale", type=float, default=0.5)
 
     # Warmup
     parser.add_argument(
