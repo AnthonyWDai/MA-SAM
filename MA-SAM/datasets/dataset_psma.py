@@ -102,22 +102,22 @@ class TrainTransform:
             image = zoom(image, (1.0, target_h / h, target_w / w), order=3)
             label = zoom(label, (1.0, target_h / h, target_w / w), order=0)
 
-        _, label_h, label_w = label.shape
-        low_h, low_w = self.low_res
-        low_res_label = zoom(
-            label,
-            (1.0, low_h / label_h, low_w / label_w),
-            order=0,
-        )
+        # _, label_h, label_w = label.shape
+        # low_h, low_w = self.low_res
+        # low_res_label = zoom(
+        #     label,
+        #     (1.0, low_h / label_h, low_w / label_w),
+        #     order=0,
+        # )
 
         image = torch.from_numpy(image.astype(np.float32))
         label = torch.from_numpy(label.astype(np.int64))
-        low_res_label = torch.from_numpy(low_res_label.astype(np.int64))
+        # low_res_label = torch.from_numpy(low_res_label.astype(np.int64))
 
         return {
             "image": image,                 # (D, H, W)
             "label": label,                 # (D, H, W)
-            "low_res_label": low_res_label, # (D, H_low, W_low)
+            # "low_res_label": low_res_label, # (D, H_low, W_low)
         }
 
 
@@ -141,22 +141,22 @@ class ValTransform:
             image = zoom(image, (1.0, target_h / h, target_w / w), order=3)
             label = zoom(label, (1.0, target_h / h, target_w / w), order=0)
 
-        _, label_h, label_w = label.shape
-        low_h, low_w = self.low_res
-        low_res_label = zoom(
-            label,
-            (1.0, low_h / label_h, low_w / label_w),
-            order=0,
-        )
+        # _, label_h, label_w = label.shape
+        # low_h, low_w = self.low_res
+        # low_res_label = zoom(
+        #     label,
+        #     (1.0, low_h / label_h, low_w / label_w),
+        #     order=0,
+        # )
 
         image = torch.from_numpy(image.astype(np.float32))
         label = torch.from_numpy(label.astype(np.int64))
-        low_res_label = torch.from_numpy(low_res_label.astype(np.int64))
+        # low_res_label = torch.from_numpy(low_res_label.astype(np.int64))
 
         return {
             "image": image,                 # (D, H, W)
             "label": label,                 # (D, H, W)
-            "low_res_label": low_res_label, # (D, H_low, W_low)
+            # "low_res_label": low_res_label, # (D, H_low, W_low)
         }
 
 
