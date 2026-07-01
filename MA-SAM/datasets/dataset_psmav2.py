@@ -268,8 +268,8 @@ class PSMADataset(Dataset):
         mask_obj = read_pkl(item["mask_path"])
 
         # input shape is D, H, W
-        image = np.asarray(image_obj["data"], dtype=np.float32)
-        mask = np.asarray(mask_obj["data"])
+        image = np.asarray(image_obj, dtype=np.float32)
+        mask = np.asarray(mask_obj)
 
         if image.ndim != 3:
             raise ValueError(
