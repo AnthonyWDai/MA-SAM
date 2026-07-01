@@ -119,6 +119,57 @@ def resize_longest_and_pad(image: np.ndarray, label: np.ndarray, output_size):
     return image, label
 
 
+def merge_axes(arr, ax1, ax2):
+    shape = arr.shape
+    axes = list(range(arr.ndim))
+    
+    # put ax1 and ax2 together in front
+    remaining = [a for a in axes if a not in (ax1, ax2)]
+    new_order = [ax1, ax2] + remaining
+    
+    transposed = arr.transpose(new_order)
+    new_shape = (shape[ax1] * shape[ax2],) + tuple(shape[a] for a in remaining)
+    
+    return transposed.reshape(new_shape)
+
+
+def undo_merge(y, original_shape, ax1, ax2):
+    """
+    Undo a merge performed as:
+        x.permute(ax1, ax2, *remaining).reshape(...)
+    
+    Args:
+        y: torch.Tensor after merge
+        original_shape: tuple/list of original shape
+        ax1, ax2: axes that were merged, in the same order used in merge
+    
+    Returns:
+        Recovered tensor with shape == original_shape
+    """
+    ndim = len(original_shape)
+    axes = list(range(ndim))
+    remaining = [a for a in axes if a not in (ax1, ax2)]
+
+    # shape after permute, before merge
+    premerge_shape = (
+        original_shape[ax1],
+        original_shape[ax2],
+        *[original_shape[a] for a in remaining]
+    )
+
+    z = y.reshape(premerge_shape)
+
+    # forward permute order used during merge
+    forward_order = [ax1, ax2] + remaining
+
+    # inverse permutation
+    inverse_order = [0] * ndim
+    for i, a in enumerate(forward_order):
+        inverse_order[a] = i
+
+    return z.permute(*inverse_order)
+
+
 class TrainTransform:
     def __init__(self, output_size, low_res):
         """
@@ -271,6 +322,12 @@ class PSMADataset(Dataset):
         image = np.asarray(image_obj, dtype=np.float32)
         mask = np.asarray(mask_obj)
 
+        if image.ndim == 4:
+            image = merge_axes(image, 0, 3)
+
+        if mask.ndim == 4:
+            mask = merge_axes(mask, 0, 3)
+
         if image.ndim != 3:
             raise ValueError(
                 f"Expected image to have shape (D, H, W), got {image.shape} "
@@ -283,7 +340,7 @@ class PSMADataset(Dataset):
                 f"for file {item['mask_path']}"
             )
 
-        if image.shape != mask.shape:
+        if image.shape[1:] != mask.shape[1:]:
             raise ValueError(
                 f"Image-mask shape mismatch:\n"
                 f"  image: {item['image_path']} shape={image.shape}\n"
@@ -300,6 +357,10 @@ class PSMADataset(Dataset):
 
         if self.transform is not None:
             sample = self.transform(sample)
+
+        C = 3
+        DC, H, W = sample["image"].shape
+        sample["image"] = undo_merge(sample["image"], (DC // C, C, H, W), 0, 1)
 
         sample["case_name"] = item["case_name"]
         return sample

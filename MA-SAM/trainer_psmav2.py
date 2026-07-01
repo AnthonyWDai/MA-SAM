@@ -202,8 +202,8 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
     for sampled_batch in tqdm(valloader, desc="Validation", ncols=70, leave=False):
         image_batch, label_batch = sampled_batch["image"], sampled_batch["label"]
 
-        image_batch = image_batch.unsqueeze(2)
-        image_batch = torch.cat((image_batch, image_batch, image_batch), dim=2)
+        # image_batch = image_batch.unsqueeze(2)
+        # image_batch = torch.cat((image_batch, image_batch, image_batch), dim=2)
 
         label_batch = label_batch.contiguous().long()
 
@@ -393,8 +393,8 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
         for i_batch, sampled_batch in enumerate(trainloader):
             image_batch, label_batch = sampled_batch["image"], sampled_batch["label"]
 
-            image_batch = image_batch.unsqueeze(2)
-            image_batch = torch.cat((image_batch, image_batch, image_batch), dim=2)
+            # image_batch = image_batch.unsqueeze(2)
+            # image_batch = torch.cat((image_batch, image_batch, image_batch), dim=2)
             label_batch = label_batch.contiguous().long()
 
             image_batch = image_batch.cuda(non_blocking=True)
