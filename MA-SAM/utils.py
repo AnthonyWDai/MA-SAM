@@ -21,13 +21,18 @@ class DiceLoss(nn.Module):
         self.n_classes = n_classes
 
     def _one_hot_encoder(self, input_tensor):
+        # input_tensor: [B, H, W] or [B, 1, H, W]
+        if input_tensor.dim() == 4 and input_tensor.size(1) == 1:
+            input_tensor = input_tensor.squeeze(1)  # [B, H, W]
+
         tensor_list = []
         for i in range(self.n_classes):
-            temp_prob = 1.0 * (input_tensor == i)  # * torch.ones_like(input_tensor)
+            temp_prob = (input_tensor == i).float()   # [B, H, W]
             temp_prob[input_tensor == -100] = -100
-            tensor_list.append(temp_prob.unsqueeze(1))
-        output_tensor = torch.cat(tensor_list, dim=1)
-        return output_tensor.float()
+            tensor_list.append(temp_prob.unsqueeze(1))  # [B, 1, H, W]
+
+        output_tensor = torch.cat(tensor_list, dim=1)  # [B, C, H, W]
+        return output_tensor
 
     def _dice_loss(self, score, target):
         target = target.float()

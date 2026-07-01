@@ -209,6 +209,7 @@ def validate(args, model, valloader, ce_loss, dice_loss, multimask_output):
 
         image_batch = image_batch.cuda(non_blocking=True)
         label_batch = label_batch.cuda(non_blocking=True)
+        label_batch = label_batch.reshape(-1, *label_batch.shape[2:])
 
         if args.use_amp:
             with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=args.use_amp):
@@ -398,6 +399,7 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
 
             image_batch = image_batch.cuda(non_blocking=True)
             label_batch = label_batch.cuda(non_blocking=True)
+            label_batch = label_batch.reshape(-1, *label_batch.shape[2:])
 
             optimizer.zero_grad()
 
