@@ -80,14 +80,14 @@ def parse_args():
     )
 
     # Reproducibility
-    parser.add_argument("--deterministic", action='store_false', help="Use deterministic training")
+    parser.add_argument("--deterministic", action='store_true', help="Use deterministic training")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
 
     # Acceleration
-    parser.add_argument('--tf32', action='store_false', help='If activated, use tf32 to accelerate the training process')
+    parser.add_argument('--tf32', action='store_true', help='If activated, use tf32 to accelerate the training process')
     parser.add_argument('--compile', action='store_true', help='If activated, compile the training model for acceleration')
-    parser.add_argument('--use_amp', action='store_false', help='If activated, adopt mixed precision for acceleration')
-    parser.add_argument('--skip_hard', action='store_false', help='If activated, adopt mixed precision for acceleration')
+    parser.add_argument('--use_amp', action='store_true', help='If activated, adopt mixed precision for acceleration')
+    parser.add_argument('--skip_hard', action='store_true', help='If activated, adopt mixed precision for acceleration')
 
     args = parser.parse_args()
 
