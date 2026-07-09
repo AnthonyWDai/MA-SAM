@@ -80,6 +80,17 @@ def parse_args():
         default=250,
         help="Warmup iterations (used only if --warmup is enabled)",
     )
+    parser.add_argument(
+        "--freeze",
+        type=int,
+        default=0,
+        help="Freeze specific mask decoder parts: 1=transformer, 2=output_upscaling.",
+    )
+    parser.add_argument(
+        "--step_unfreeze",
+        action="store_true",
+        help="Step unfreeze after warming up",
+    )
 
     # Reproducibility
     parser.add_argument("--deterministic", action='store_true', help="Use deterministic training")
@@ -118,6 +129,11 @@ def ensure_output_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
 
+def freeze_module(module) -> None:
+    for param in module.parameters():
+        param.requires_grad = False
+
+
 def build_model(args):
     sam, img_embedding_size = sam_model_registry[args.vit_name](
         image_size=args.img_size,
@@ -135,6 +151,15 @@ def build_model(args):
 
     if args.adapt_ckpt is not None:
         net.load_parameters(args.adapt_ckpt)
+
+    if args.freeze > 0:
+        freeze_module(net.sam.prompt_encoder)
+
+    if args.freeze > 1:
+        freeze_module(net.sam.mask_decoder.transformer)
+
+    if args.freeze > 2:
+        freeze_module(net.sam.mask_decoder.output_upscaling)
 
     return net, img_embedding_size
 

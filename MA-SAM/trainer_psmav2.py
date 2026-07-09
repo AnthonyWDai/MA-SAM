@@ -267,6 +267,11 @@ def save_model(model, path):
         model.module.save_parameters(path)
 
 
+def unfreeze_module(module) -> None:
+    for param in module.parameters():
+        param.requires_grad = True
+
+
 def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     os.makedirs(snapshot_path, exist_ok=True)
 
@@ -450,6 +455,11 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
 
                 lr_ = base_lr * ((1.0 - shift_iter / decay_total) ** args.lr_exp)
                 lr_ = max(lr_, 0.0)
+
+                if args.freeze > 0 and args.step_unfreeze:
+                    unfreeze_module(model.sam.prompt_encoder)
+                    unfreeze_module(model.sam.mask_decoder.transformer)
+                    unfreeze_module(model.sam.mask_decoder.output_upscaling)
 
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr_
