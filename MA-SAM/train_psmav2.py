@@ -65,6 +65,8 @@ def parse_args():
     )
     parser.add_argument("--ce_weight_clamp_max", type=float, default=5.0)
     parser.add_argument("--ce_background_scale", type=float, default=0.5)
+    parser.add_argument("--grad_clip", type=float, default=1.0,
+                    help="Max norm for gradient clipping. Set <=0 to disable.")
 
     # Warmup
     parser.add_argument(

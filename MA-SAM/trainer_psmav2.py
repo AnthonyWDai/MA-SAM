@@ -409,7 +409,16 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
                     loss, loss_ce, loss_dice = calc_loss(
                         outputs, label_batch, ce_loss, dice_loss, args.dice_param
                     )
+
                 scaler.scale(loss).backward()
+
+                if args.grad_clip is not None and args.grad_clip > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        filter(lambda p: p.requires_grad and p.grad is not None, model.parameters()),
+                        max_norm=args.grad_clip,
+                    )
+
                 scaler.step(optimizer)
                 scaler.update()
             else:
@@ -417,7 +426,15 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
                 loss, loss_ce, loss_dice = calc_loss(
                     outputs, label_batch, ce_loss, dice_loss, args.dice_param
                 )
+
                 loss.backward()
+
+                if args.grad_clip is not None and args.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        filter(lambda p: p.requires_grad and p.grad is not None, model.parameters()),
+                        max_norm=args.grad_clip,
+                    )
+
                 optimizer.step()
 
             if args.warmup and iter_num < args.warmup_period:
